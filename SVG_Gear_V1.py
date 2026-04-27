@@ -465,14 +465,14 @@ st.download_button(
 
 
 
-
-
+#impath="Gears\"
+impath="https://raw.githubusercontent.com/edivall/SVG_Cog_playground/main/images/"
 
 # Local data array for user info
 items = [
     {
         "title": "First Item",
-        "image": "images\GearSin1.png",
+        "image": impath+"GearSin1.png",
         "caption": "Sinusoidal",
         "header": "Sinusoidal profile",
         "description": "Tooth shape based on simple sinusoid.",
@@ -480,7 +480,7 @@ items = [
     },
     {
         "title": "Second Item",
-        "image": "images\GearSpike1.png",
+        "image": impath+"GearSpike1.png",
         "caption": "Spike/Square",
         "header": "Spike/Square",
         "description": "Tooth shape based on straight lines. With adjustable slope. ",
@@ -488,7 +488,7 @@ items = [
     },
     {
         "title": "3rd Item",
-        "image": "imagesGearRatchet1.png",
+        "image": impath+"GearRatchet1.png",
         "caption": "Ratchet",
         "header": "Ratchet",
         "description": "Tooth shape based on spiral shape.",
@@ -496,7 +496,7 @@ items = [
     },
     {
         "title": "4th Item",
-        "image": "images\GearRounded1.png",
+        "image": impath+"GearRounded1.png",
         "caption": "Rounded square",
         "header": "Rounded Square",
         "description": "Tooth shape based on basic square profile with the corners rounded.",
@@ -504,7 +504,7 @@ items = [
     },
     {
         "title": "5th Item",
-        "image": "images\GearGauss1.png",
+        "image": impath+"GearGauss1.png",
         "caption": "Gaussian",
         "header": "Gaussian profile",
         "description": "Tooth shape based on simple gaussian.",
@@ -512,7 +512,7 @@ items = [
     },
     {
         "title": "6th Item",
-        "image": "images\GearRadShear1.png",
+        "image": impath+"GearRadShear1.png",
         "caption": "Radial shear",
         "header": "Radial shear - Spiral",
         "description": "As tooth moves away from the center it is twisted left or right.",
@@ -520,7 +520,7 @@ items = [
     },
     {
         "title": "7th Item",
-        "image": "images\GearRadWig1.png",
+        "image": impath+"GearRadWig1.png",
         "caption": "Radial wiggle 1",
         "header": "Radial wiggle 1",
         "description": "As tooth moves away from the center it is twisted wider and narrower following a sine wave. This example uses 2 half oscillations of a sinewave to first make the tooth narrower and then wider as it moves out from the center. Midpoint reflection is on to ensure the tooth is symetrical.",
@@ -528,7 +528,7 @@ items = [
     },
     {
         "title": "8th Item",
-        "image": "images\GearRadWig2.png",
+        "image": impath+"GearRadWig2.png",
         "caption": "Radial wiggle 2",
         "header": "Radial wiggle 2",
         "description": "This example on a gaussian gear uses 4 half oscillations of a sinewave to first make the tooth wave to and fro as it moves out from the center. Midpoint reflection is OFF to ensure the teeth both sides of tooth move together.",
