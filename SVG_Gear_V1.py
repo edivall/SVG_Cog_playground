@@ -351,7 +351,7 @@ with st.sidebar:
     st.header("Settings")
     svg_size = st.slider("SVG size", 50, 800, 300)
     st.header("Gear")
-    n_teeth = st.slider("Teeth", 2, 100, 20, on_change = update_tooth_span,key="n_teeth")
+    n_teeth = st.slider("Teeth", 3, 100, 20, on_change = update_tooth_span,key="n_teeth")
     angle_span = st.slider("Tooth span (deg)", 2.0, 130.0, 18.0,  key="angle_span")
     tooth_type = st.selectbox("Profile", ["Sinusoidal", "Spike/Square","Gaussian","Rounded Square","Ratchet"])
     r_base = st.slider("Base radius", 1, 120, 72)
@@ -383,6 +383,13 @@ with st.sidebar:
     spoke_outer = st.slider("Spoke outer margin", 0, 50, 10)
     dt = st.slider("Spoke width tweak (dt)", 0.0, 20.0, 5.0)
 
+    st.header("Mating Gear")
+
+    n2 = st.slider("Gear 2 teeth", 2, 150, 10)
+    slop = st.slider("Gap between", 0.0, 20.0, 0.5) 
+    rotg1 = st.number_input("rotate gear1", 0.0, 90.0, 0.0, 1.0) 
+    show_mating = st.checkbox("Show mating gear", True)
+    
 
 params = {
     "svg_size": svg_size,
@@ -409,21 +416,225 @@ params = {
     "spoke_width": spoke_width,
     "spoke_inner": spoke_inner,
     "spoke_outer": spoke_outer,
-    "dt": dt
+    "dt": dt,
+    "slop": slop,
+    "rotg1": rotg1
 }
 
 
+# Gear 2
+def build_gear1_points(polar_points_deg, n_teeth, rotg1):
+    """
+    Returns full list of (x, y) points for gear 1 in Cartesian coords,
+    centered at (0,0), NOT shifted to SVG center.
+    """
+
+    # convert one tooth from polar → cartesian
+    base = [
+        (
+            r * math.cos(math.radians(theta+rotg1)),
+            r * math.sin(math.radians(theta+rotg1))
+        )
+        for r, theta in polar_points_deg
+    ]
+
+    pts = []
+
+    # replicate around circle
+    for i in range(n_teeth):
+        ang = 360 * i / n_teeth
+        rot = [rotate_point(x, y, ang) for x, y in base]
+        pts.extend(rot)
+
+    return pts
+
+
+
+
+
+
+
+def generate_mating_gear_level1(gear1_pts, n1, n2, d, slop=0.0, steps=120):
+
+    ratio = n1 / n2
+    rots =1 
+    if n2>n1:
+        rots=n2/n1
+
+    # --- envelope storage: one best point per angle bin
+    bins = {}
+
+    def ang(x, y):
+        return math.atan2(y, x)
+
+    gear1_pts = np.array(gear1_pts)
+    
+    for phi in np.linspace(0, rots*2*np.pi, steps):
+
+        phi2 = -phi * ratio
+
+        c1, s1 = math.cos(phi), math.sin(phi)
+        c2, s2 = math.cos(phi2), math.sin(phi2)
+
+        for x, y in gear1_pts:
+
+            # --- rotate gear1
+            x1 = x * c1 - y * s1
+            y1 = x * s1 + y * c1
+
+            # --- translate to gear2 center
+            x1 = d -x1
+
+            # --- rotate into gear2 frame
+            x2 = x1 * c2 - y1 * s2
+            y2 = x1 * s2 + y1 * c2
+
+            # --- bin by angle
+            a = ang(x2, y2)
+
+            # 720 bins gives smooth but stable outline
+            k = int((a + math.pi) / (2 * math.pi) * 720)
+            
+
+            r2 = x2*x2 + y2*y2
+            #r2 = x2 * math.cos(a) + y2 * math.sin(a)
+
+            # keep only outer envelope (max radius per direction)
+
+            if k not in bins or r2 < bins[k][0]:
+                bins[k] = (r2, (x2, y2))
+
+    # --- extract final contour
+    gear2 = [v[1] for v in bins.values()]
+
+    # --- sort into continuous loop
+    gear2.sort(key=lambda p: math.atan2(p[1], p[0]))
+
+    if slop != 0.0:
+        new_gear2 = []
+
+        for x, y in gear2:
+            r = math.hypot(x, y)
+
+            if r > 1e-9:
+                r_new = max(r - slop, 1e-6)  # prevent collapse
+                scale = r_new / r
+                new_gear2.append((x * scale, y * scale))
+            else:
+                new_gear2.append((x, y))
+
+        gear2 = new_gear2
+
+
+
+    return gear2
+
+def build_svg_two_gears(gear1_pts, gear2_pts, d, r1, svg_size, hole_r ):
+
+    cx, cy = svg_size / 2 - r1, svg_size / 2
+    
+
+    dwg = svgwrite.Drawing(size=(svg_size, svg_size),
+                           viewBox=f"0 0 {svg_size} {svg_size}")
+
+    # --- Gear 1 (centered)
+    pts1 = [(x + cx, y + cy) for (x, y) in gear1_pts]
+    if pts1:
+        path1 = "M " + " L ".join(f"{x},{y}" for x, y in pts1) + " Z"
+
+        r = hole_r
+        path1 += f"""
+        M {cx+r},{cy}
+        A {r},{r} 0 1,0 {cx-r},{cy}
+        A {r},{r} 0 1,0 {cx+r},{cy}
+        """
+        
+        dwg.add(dwg.path(
+            d=path1,
+            fill="lightsteelblue",
+            stroke="black",
+            stroke_width=1,
+            fill_rule="evenodd"
+        ))
+
+    # --- Gear 2 (shifted by center distance)
+    pts2 = [(cx + d - x, cy + y) for (x, y) in gear2_pts]
+    if pts2:
+        path2 = "M " + " L ".join(f"{x},{y}" for x, y in pts2) + " Z"
+
+        r = hole_r
+        path2 += f"""
+        M {cx+r+d},{cy}
+        A {r},{r} 0 1,0 {cx-r+d},{cy}
+        A {r},{r} 0 1,0 {cx+r+d},{cy}
+        """
+
+
+        dwg.add(dwg.path(
+            d=path2,
+            fill="lightcoral",
+            stroke="black",
+            stroke_width=1,
+            fill_rule="evenodd"
+        ))
+
+    return dwg.tostring()
+
+def normalize_to_pitch(gear_pts, target_radius):
+    out = []
+    for x, y in gear_pts:
+        r = math.hypot(x, y) + 1e-9
+        s = target_radius / r
+        out.append((x * s, y * s))
+    return out
 # ----------------------------
 # Generate + render
 # ----------------------------
 
 polar_points = generate_tooth(params)
+gear1_pts = build_gear1_points(polar_points, params["n_teeth"], rotg1)  #make full gear in cartesian coords
+
+n1 = params["n_teeth"]
+n2 = n2  # your slider / choice
+
+# --- estimate outer radius of gear1
+r_vals = [r for r, _ in polar_points]
+
+R1_pitch = (    max(r_vals) + min(r_vals)) / 2
+
+# --- enforce correct gear ratio constraint
+R2_pitch = R1_pitch * (n2 / n1)
+
+# --- center distance (true gear law)
+R1_outer = max(r_vals)
+R1_inner = min(r_vals)
+R1_pitch = (R1_outer + R1_inner) / 2
+
+R2_pitch = R1_pitch * (n2 / n1)
+
+d = R1_pitch + R2_pitch
+
+
+#gear1_pts = normalize_to_pitch(gear1_pts, R1_pitch)
+
+slop=params["slop"]
+
+if show_mating:
+    gear2_pts = generate_mating_gear_level1(gear1_pts, n1, n2, d,slop, steps=120  )
+else:
+    gear2_pts = []
 
 #angles, radius_vals, tweak_vals = build_debug_data(params)  #xy graphs
 angles, radius_vals, tweak_vals = build_debug_data_from_points(polar_points)
 
-svg_str,ssvg_str = build_svg(polar_points, params)
-
+#svg_str,ssvg_str = build_svg(polar_points, params)
+if show_mating and gear2_pts:
+    svg_str = build_svg_two_gears(gear1_pts, gear2_pts, d, R1_outer, svg_size, params["center_hole" ])
+    ssvg_str = svg_str
+else:
+    svg_str, ssvg_str = build_svg(polar_points, params)
+    
+    
 
 with st.container():
     st.image(svg_str, use_container_width=True)
@@ -446,7 +657,7 @@ with st.container():
 
 
 st.download_button(
-    "💾 Download Scaled SVG",
+    "💾 Download SVG",
     ssvg_str,
     file_name="gear.svg",
     mime="image/svg+xml"
