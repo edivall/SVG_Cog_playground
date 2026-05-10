@@ -3,7 +3,8 @@ import svgwrite
 import math
 import numpy as np
 
-
+#time only for checking speed
+import time 
 
 
 
@@ -141,7 +142,7 @@ def radius_profile(t, r_base, tooth_height, power, width, tooth_type,nteeth): #t
         return r_base
 
 
-def angle_profile(t, angle_span, angle_wave, angle_power, rfrac, rad_wig, wig_strength, reflect, radial_shear):
+def angle_profile(t, angle_span, rfrac, rad_wig, wig_strength, reflect, radial_shear):
     theta = t * angle_span 
     if (reflect == "On") and (t> 0.5):
         wig=-1.0
@@ -156,11 +157,11 @@ def angle_profile(t, angle_span, angle_wave, angle_power, rfrac, rad_wig, wig_st
     s =  math.sin(cycles    * math.pi * t) #t is 0 to 1
     
     #mag =s
-    if (t < (dist/cycles)) or (t > ((cycles-dist)/cycles)):
-        mag = (abs(s)) ** angle_power
-        mag =theta + angle_wave * mag * math.copysign(1, s)
-    else:
-        mag=theta
+    #if (t < (dist/cycles)) or (t > ((cycles-dist)/cycles)):
+    #    mag = (abs(s)) ** angle_power
+    #    mag =theta + angle_wave * mag * math.copysign(1, s)
+    #else:
+    mag=theta
   
     mag=mag + math.sin(rad_wig    * math.pi * rfrac) * wig_strength*wig + rfrac * radial_shear
     
@@ -198,8 +199,8 @@ def generate_tooth(params):
         theta = angle_profile(
             t,
             params["angle_span"],
-            params["angle_wave"],
-            params["angle_power"],
+            #params["angle_wave"],
+            #params["angle_power"],
             rfrac,
             params["radial_wiggles"],
             params["wiggle_strength"],
@@ -354,18 +355,18 @@ with st.sidebar:
     n_teeth = st.slider("Teeth", 3, 100, 20, on_change = update_tooth_span,key="n_teeth")
     angle_span = st.slider("Tooth span (deg)", 2.0, 130.0, 18.0,  key="angle_span")
     tooth_type = st.selectbox("Profile", ["Sinusoidal", "Spike/Square","Gaussian","Rounded Square","Ratchet"])
-    r_base = st.slider("Base radius", 1, 120, 72)
-    tooth_height = st.slider("Tooth height", -100, 100, 10)
+    r_base = st.slider("Base radius", 1.0, 120.0, 50.0)
+    tooth_height = st.slider("Tooth height", -50.0, 50.0, 10.0)
     power = st.slider("Sharpness (1 for pure gauss)", 0.1, 7.0, 1.0)
     width = st.slider("Tooth width (not sinusoidal)", 1.0, 99.0, 50.0)
 
     st.header("Radial wave")
     tooth_reflect = st.selectbox("Mid point reflection", ["Off", "On"])
-    radial_shear = st.slider("Radial shear (spiral)", -90.0, 90.0, 0.0)
+    radial_shear = st.slider("Radial shear (spiral)", -15.0, 15.0, 0.0)
     radial_wiggles = st.slider("Radial wiggles (half oscillations)", -5.0, 5.0, 0.0)
     wiggle_strength = st.slider("Radial Wiggle amplitude (0=Off)", -6.0, 6.0, 2.0)
-    angle_wave = st.slider("Wave strength (0=Off)", -5.0, 5.0, 0.0)
-    angle_power = st.slider("Wave power", 0.5, 6.0, 2.0)
+    #angle_wave = st.slider("Wave strength (0=Off)", -5.0, 5.0, 0.0)
+    #angle_power = st.slider("Wave power", 0.5, 6.0, 2.0)
 
 
     st.header("Samples")
@@ -399,8 +400,8 @@ params = {
     "width": width,
     "tooth_type": tooth_type,
     "tooth_reflect": tooth_reflect,
-    "angle_wave": angle_wave,
-    "angle_power": angle_power,
+    #"angle_wave": angle_wave,
+    #"angle_power": angle_power,
     "radial_shear": radial_shear,
     "radial_wiggles": radial_wiggles,
     "wiggle_strength": wiggle_strength,
@@ -454,7 +455,7 @@ def build_gear1_points(polar_points_deg, n_teeth, rotg1):
 
 
 
-def generate_mating_gear_level1(gear1_pts, n1, n2, d, slop=0.0, steps=120):
+def generate_mating_gear_level1_works_but_could_be_faster(gear1_pts, n1, n2, d, slop=0.0, steps=120):
 
     ratio = n1 / n2
     rots =1 
@@ -528,6 +529,164 @@ def generate_mating_gear_level1(gear1_pts, n1, n2, d, slop=0.0, steps=120):
 
 
     return gear2
+
+def generate_mating_gear_level1(gear1_pts, n1, n2, d, slop=0.0, steps=120, nbins=720):
+
+    """
+    Faster vectorized mating gear generator.
+    gear1_pts : [(x,y), ...]        Cartesian points of gear1 centered at origin
+    n1, n2 : int       Tooth counts
+    d : float          Center distance between gears
+    slop : float       Radial clearance
+    steps : int        Rotation samples
+    nbins : int        Angular envelope resolution
+    """
+
+    # ---------------------------------
+    # gear ratio
+    # ---------------------------------
+    ratio = n1 / n2
+
+    # ---------------------------------
+    # preserve original behavior
+    # ---------------------------------
+    rots = 1    #number of rotations to make
+
+    if n2 > n1:
+        rots = n2 / n1
+
+    # ---------------------------------
+    # convert once to numpy
+    # ---------------------------------
+    pts = np.asarray(gear1_pts, dtype=np.float64)
+
+    x = pts[:, 0]
+    y = pts[:, 1]
+
+    # ---------------------------------
+    # envelope storage
+    # ---------------------------------
+    best_r2 = np.full(nbins, np.inf)
+
+    best_x = np.zeros(nbins)
+    best_y = np.zeros(nbins)
+
+    # ---------------------------------
+    # precompute rotations
+    # ---------------------------------
+    phis = np.linspace(
+        0,
+        rots * 2*np.pi,
+        steps,
+        endpoint=False
+    )
+
+    cos1 = np.cos(phis)
+    sin1 = np.sin(phis)
+
+    phi2s = -phis * ratio
+
+    cos2 = np.cos(phi2s)
+    sin2 = np.sin(phi2s)
+
+    # ---------------------------------
+    # main loop
+    # ---------------------------------
+    for i in range(steps):
+
+        c1 = cos1[i]
+        s1 = sin1[i]
+
+        c2 = cos2[i]
+        s2 = sin2[i]
+
+        # -----------------------------
+        # rotate gear1
+        # -----------------------------
+        x1 = x * c1 - y * s1
+        y1 = x * s1 + y * c1
+
+        # -----------------------------
+        # original mirrored transform
+        # -----------------------------
+        x1 = d - x1
+
+        # -----------------------------
+        # rotate into gear2 frame
+        # -----------------------------
+        x2 = x1 * c2 - y1 * s2
+        y2 = x1 * s2 + y1 * c2
+
+        # -----------------------------
+        # angular bins
+        # -----------------------------
+        ang = np.arctan2(y2, x2)
+
+        k = (
+            ((ang + np.pi) / (2*np.pi) * nbins)
+            .astype(np.int32)
+        ) % nbins
+
+        # -----------------------------
+        # radius²
+        # -----------------------------
+        r2 = x2*x2 + y2*y2
+
+        # -----------------------------
+        # envelope extraction
+        # keep INNER envelope
+        # -----------------------------
+        for j in range(len(r2)):
+
+            kk = k[j]
+
+            if r2[j] < best_r2[kk]:
+
+                best_r2[kk] = r2[j]
+
+                best_x[kk] = x2[j]
+                best_y[kk] = y2[j]
+
+    # ---------------------------------
+    # build contour
+    # ---------------------------------
+    gear2 = []
+
+    for i in range(nbins):
+
+        if best_r2[i] != np.inf:
+
+            xx = best_x[i]
+            yy = best_y[i]
+
+            # -------------------------
+            # apply radial slop
+            # -------------------------
+            if slop != 0.0:
+
+                r = math.hypot(xx, yy)
+
+                if r > 1e-9:
+
+                    r_new = max(r - slop, 1e-6)
+
+                    s = r_new / r
+
+                    xx *= s
+                    yy *= s
+
+            gear2.append((xx, yy))
+
+    # ---------------------------------
+    # continuous polygon ordering
+    # ---------------------------------
+    gear2.sort(
+        key=lambda p: math.atan2(p[1], p[0])
+    )
+
+    return gear2
+
+
 
 def build_svg_two_gears(gear1_pts, gear2_pts, d, r1, svg_size, hole_r ):
 
@@ -619,10 +778,17 @@ d = R1_pitch + R2_pitch
 
 slop=params["slop"]
 
+#t0 = time.perf_counter()
 if show_mating:
-    gear2_pts = generate_mating_gear_level1(gear1_pts, n1, n2, d,slop, steps=120  )
+   
+    gear2_pts = generate_mating_gear_level1(gear1_pts, n1, n2, d,slop, steps=120  ) # over 4 times faster
+    #gear2_pts = generate_mating_gear_level1_works_but_could_be_faster(gear1_pts, n1, n2, d,slop, steps=120  )
 else:
     gear2_pts = []
+
+
+#t1 = time.perf_counter()
+#print(f"generate_mating_gear_level1: {(t1 - t0):.4f} sec")
 
 #angles, radius_vals, tweak_vals = build_debug_data(params)  #xy graphs
 angles, radius_vals, tweak_vals = build_debug_data_from_points(polar_points)
@@ -681,6 +847,14 @@ impath="https://raw.githubusercontent.com/edivall/SVG_Cog_playground/main/images
 
 # Local data array for user info
 items = [
+    {
+        "title": "Zeroth Item",
+        "image": impath+"GearMesh4.png",
+        "caption": "Primary and meshing gears",
+        "header": "Meshing gear calc",
+        "description": "Given a primary gear (blue/grey) a second (meshing) gear (red) is calculated - as best as possible! If it has a noisy profile then try increasing samples on the first tooth.",
+        "points": ["Number of teeth on meshing gear can be set.", "Additional gap between the 2 gears can be added.", "Primary gear can be rotated to see meshing in action!"]
+    },
     {
         "title": "First Item",
         "image": impath+"GearSin1.png",
