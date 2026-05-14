@@ -6,7 +6,10 @@ import numpy as np
 #time only for checking speed
 import time 
 
-
+#for stl creation ---> pip install trimesh shapely mapbox-earcut
+from shapely.geometry import Polygon
+import trimesh
+import io
 
 
 
@@ -345,12 +348,12 @@ def build_svg(polar_points, p):
 # Streamlit UI
 # ----------------------------
 
-st.title("⚙️ SVG Cog shape Generator!")
+st.title("⚙️ SVG Cog / Gear shape Generator!")
 
 with st.sidebar:
 
     st.header("Settings")
-    svg_size = st.slider("SVG size", 50, 800, 300)
+    svg_size = st.slider("SVG image size", 50, 800, 300)
     st.header("Gear")
     n_teeth = st.slider("Teeth", 3, 100, 20, on_change = update_tooth_span,key="n_teeth")
     angle_span = st.slider("Tooth span (deg)", 2.0, 130.0, 18.0,  key="angle_span")
@@ -365,14 +368,25 @@ with st.sidebar:
     radial_shear = st.slider("Radial shear (spiral)", -15.0, 15.0, 0.0)
     radial_wiggles = st.slider("Radial wiggles (half oscillations)", -5.0, 5.0, 0.0)
     wiggle_strength = st.slider("Radial Wiggle amplitude (0=Off)", -6.0, 6.0, 2.0)
-    #angle_wave = st.slider("Wave strength (0=Off)", -5.0, 5.0, 0.0)
-    #angle_power = st.slider("Wave power", 0.5, 6.0, 2.0)
-
 
     st.header("Samples")
-    n_points = st.slider("Resolution (Samples per tooth)", 1, 200, 60)
+    n_points = st.slider("Resolution (Samples per tooth on gear 1)", 1, 250, 100)
 
-    st.header("Holes / Spokes")
+    st.header("Mating Gear")
+
+    n2 = st.slider("Gear 2 teeth", 2, 150, 10)
+    slop = st.slider("Gap between", 0.0, 20.0, 0.5) 
+    steps_per_rev = st.slider("Samples per complete gear (360 deg)", 180, 2880, 720)
+    smooth_iters = st.slider("Smoothing iterations for gear 2", 0, 10, 0)
+    rotg1 = st.number_input("rotate gear1", 0.0, 90.0, 0.0, 1.0) 
+    show_mating = st.checkbox("Show mating gear", True)
+
+
+    
+    st.header("3D Export")
+    stl_thickness = st.slider("STL thickness", 1.0, 50.0, 5.0)
+
+    st.header("Holes / Spokes - SVG save only")
     center_hole = st.slider("Center hole (0=Off)", 0, 50, 5)
     bolt_holes = st.slider("Outer holes (0=Off)", 0, 120, 6)
     bolt_radius = st.slider("Outer hole radius", 20, 150, 70)
@@ -384,12 +398,7 @@ with st.sidebar:
     spoke_outer = st.slider("Spoke outer margin", 0, 50, 10)
     dt = st.slider("Spoke width tweak (dt)", 0.0, 20.0, 5.0)
 
-    st.header("Mating Gear")
 
-    n2 = st.slider("Gear 2 teeth", 2, 150, 10)
-    slop = st.slider("Gap between", 0.0, 20.0, 0.5) 
-    rotg1 = st.number_input("rotate gear1", 0.0, 90.0, 0.0, 1.0) 
-    show_mating = st.checkbox("Show mating gear", True)
     
 
 params = {
@@ -686,12 +695,62 @@ def generate_mating_gear_level1(gear1_pts, n1, n2, d, slop=0.0, steps=120, nbins
 
     return gear2
 
+# option to smooth gear 2 teeth
+def chaikin_smooth(points, iterations=2):       #Test 1  - not that effective
+    pts = np.array(points)
+
+    for _ in range(iterations):
+        new_pts = []
+
+        for i in range(len(pts)):
+            p0 = pts[i]
+            p1 = pts[(i + 1) % len(pts)]
+
+            Q = 0.75 * p0 + 0.25 * p1
+            R = 0.25 * p0 + 0.75 * p1
+
+            new_pts.extend([Q, R])
+
+        pts = np.array(new_pts)
+
+    return pts.tolist()
+
+def smooth_radius(points, alpha=0.2, iterations=2):
+    pts = np.array(points)
+
+    x = pts[:, 0]
+    y = pts[:, 1]
+
+    r = np.sqrt(x*x + y*y)
+    theta = np.arctan2(y, x)
+
+    # ensure sorted by angle
+    order = np.argsort(theta)
+    r = r[order]
+    theta = theta[order]
+
+    # circular smoothing
+    for _ in range(iterations):
+        r_new = r.copy()
+
+        for i in range(len(r)):
+            r_prev = r[i - 1]
+            r_next = r[(i + 1) % len(r)]
+
+            r_new[i] = (1 - alpha) * r[i] + alpha * 0.5 * (r_prev + r_next)
+
+        r = r_new
+
+    # rebuild cartesian
+    x_new = r * np.cos(theta)
+    y_new = r * np.sin(theta)
+
+    return list(zip(x_new, y_new))
 
 
 def build_svg_two_gears(gear1_pts, gear2_pts, d, r1, svg_size, hole_r ):
 
-    cx, cy = svg_size / 2 - r1, svg_size / 2
-    
+    cx, cy = svg_size / 2 - r1, svg_size / 2    
 
     dwg = svgwrite.Drawing(size=(svg_size, svg_size),
                            viewBox=f"0 0 {svg_size} {svg_size}")
@@ -728,7 +787,6 @@ def build_svg_two_gears(gear1_pts, gear2_pts, d, r1, svg_size, hole_r ):
         A {r},{r} 0 1,0 {cx+r+d},{cy}
         """
 
-
         dwg.add(dwg.path(
             d=path2,
             fill="lightcoral",
@@ -738,6 +796,112 @@ def build_svg_two_gears(gear1_pts, gear2_pts, d, r1, svg_size, hole_r ):
         ))
 
     return dwg.tostring()
+
+
+
+
+# ----------------------------
+# STL Export
+# ----------------------------
+def make_circle_points(radius, segments=64, center=(0, 0), reverse=True):
+
+    cx, cy = center
+
+    pts = []
+
+    for i in range(segments):
+        a = 2 * math.pi * i / segments
+
+        x = cx + radius * math.cos(a)
+        y = cy + radius * math.sin(a)
+
+        pts.append((x, y))
+
+    if reverse:
+        pts.reverse()
+
+    return pts
+
+
+def points_to_stl_bytes(gear1_pts, gear2_pts=None, thickness=5.0, mirror_gear=0, spacing_shift=(0, 0), center_hole_radius=0):
+
+    meshes = []
+
+    # ------------------------
+    # Gear 1 with center hole
+    # ------------------------
+
+    holes = []
+
+    if center_hole_radius > 0:
+        hole_pts = make_circle_points(center_hole_radius)
+        holes.append(hole_pts)
+    
+    if mirror_gear==0:    
+        poly1 = Polygon(gear1_pts, holes=holes)
+    else:
+       mirrored = [(-x, y ) for x, y in gear1_pts]
+       poly1 = Polygon(mirrored, holes=holes)
+       
+
+    if not poly1.is_valid:
+        poly1 = poly1.buffer(0)
+
+    mesh1 = trimesh.creation.extrude_polygon(
+        poly1,
+        height=thickness
+    )
+
+    meshes.append(mesh1)
+
+    # ------------------------
+    # Gear 2
+    # ------------------------
+      
+    if gear2_pts and len(gear2_pts) > 2:
+
+        dx, dy = spacing_shift
+
+        # IMPORTANT:
+        # mirror X exactly like SVG rendering
+        shifted = [(-x + dx, y + dy) for x, y in gear2_pts]
+
+        holes2 = []
+
+        if center_hole_radius > 0:
+            hole2 = make_circle_points(
+                center_hole_radius,
+                center=(dx, dy)
+            )
+            holes2.append(hole2)
+
+        poly2 = Polygon(shifted, holes=holes2)
+
+        if not poly2.is_valid:
+            poly2 = poly2.buffer(0)
+
+        mesh2 = trimesh.creation.extrude_polygon(
+            poly2,
+            height=thickness
+        )    
+              
+
+        meshes.append(mesh2)
+
+    # ------------------------
+    # Combine meshes
+    # ------------------------
+
+    combined = trimesh.util.concatenate(meshes)
+
+    return combined.export(file_type='stl')
+
+
+
+
+
+
+
 
 def normalize_to_pitch(gear_pts, target_radius):
     out = []
@@ -781,7 +945,12 @@ slop=params["slop"]
 #t0 = time.perf_counter()
 if show_mating:
    
-    gear2_pts = generate_mating_gear_level1(gear1_pts, n1, n2, d,slop, steps=120  ) # over 4 times faster
+    gear2_pts = generate_mating_gear_level1(gear1_pts, n1, n2, d,slop, steps=120, nbins=steps_per_rev ) # over 4 times faster
+    
+    
+    if smooth_iters!=0 and gear2_pts:
+        #gear2_pts = chaikin_smooth(gear2_pts, iterations=smooth_iters)
+        gear2_pts = smooth_radius(gear2_pts, alpha=0.3, iterations=smooth_iters)
     #gear2_pts = generate_mating_gear_level1_works_but_could_be_faster(gear1_pts, n1, n2, d,slop, steps=120  )
 else:
     gear2_pts = []
@@ -836,9 +1005,117 @@ st.download_button(
     mime="image/svg+xml"
 )
 
+# ----------------------------
+# STL generation - in one file
+# ----------------------------
+
+if st.button("🧊 Generate single STL file"):
+
+    with st.spinner("Generating STL..."):
+
+        if show_mating and gear2_pts:
+
+            gear2_shift_x = d
+
+            stl_data = points_to_stl_bytes(
+                gear1_pts,
+                gear2_pts,
+                thickness=stl_thickness,
+                mirror_gear=0,
+                spacing_shift=(gear2_shift_x, 0),
+                center_hole_radius=params["center_hole"]
+            )
+            
+
+        else:
+
+            stl_data = points_to_stl_bytes(
+                gear1_pts,
+                None,
+                thickness=stl_thickness,
+                mirror_gear=0,
+                center_hole_radius=params["center_hole"]
+            )
+
+    st.download_button(
+        "💾 Download STL",
+        data=stl_data,
+        file_name="gears.stl",
+        mime="model/stl"
+    )
+
+# ----------------------------
+# STL generation - separate files
+# ----------------------------
+def clear_stl_downloads():  #Clear save buttons after gear 2 saved
+    st.session_state.gear1_stl = None
+    st.session_state.gear2_stl = None
+
+if "gear1_stl" not in st.session_state:
+    st.session_state.gear1_stl = None
+
+if "gear2_stl" not in st.session_state:
+    st.session_state.gear2_stl = None
 
 
+if st.button("🧊 Generate 2 STL files"):
 
+    with st.spinner("Generating STL..."):
+
+        # ------------------------
+        # Gear 1 STL
+        # ------------------------
+
+        st.session_state.gear1_stl = points_to_stl_bytes(
+            gear1_pts,
+            thickness=stl_thickness,
+            mirror_gear=0,
+            center_hole_radius=params["center_hole"]
+        )
+
+        # ------------------------
+        # Gear 2 STL
+        # ------------------------
+
+        st.session_state.gear2_stl = None
+
+        if show_mating and gear2_pts:
+
+            st.session_state.gear2_stl = points_to_stl_bytes(
+                gear2_pts,
+                thickness=stl_thickness,
+                mirror_gear=1,
+                center_hole_radius=params["center_hole"]
+            )
+
+# ------------------------
+# Persistent download buttons
+# ------------------------
+
+if st.session_state.gear1_stl is not None:
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.download_button(
+            "💾 Download Gear 1 STL",
+            data=st.session_state.gear1_stl,
+            file_name="gear1.stl",
+            mime="model/stl"
+        )
+
+    with col2:
+
+        if st.session_state.gear2_stl is not None:
+
+            st.download_button(
+                "💾 Download Gear 2 STL",
+                data=st.session_state.gear2_stl,
+                file_name="gear2.stl",
+                mime="model/stl",
+                on_click=clear_stl_downloads
+            )
 
 
 
@@ -921,7 +1198,7 @@ items = [
     }
 ]
 
-# Render each item
+# Render each item in items to give help list
 for item in items:
     with st.container(border=True):
         col1, col2 = st.columns([1, 2])
