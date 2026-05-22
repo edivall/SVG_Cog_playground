@@ -1,4 +1,4 @@
-[Launch SVG Cog Playground](https://svgcogplayground-v1.streamlit.app/)
+Click here -> [Launch SVG Cog Playground](https://svgcogplayground-v1.streamlit.app/)
 
 Create non-spur gears, i.e sinusoidal and square!
 
@@ -8,5 +8,5 @@ Parametic interface to change basic parameters.. can then be saved as in svg for
 
 
 
-<meta name="google-site-verification" content="CE2QkIZm5N2lfqYHMGuu_8VKshaMh7aBRXQ79qMCDe4" />
 
+<meta name="google-site-verification" content="7Q3EuHODp6PJmQbzVUo9PsyB7AtUW81sM8UXI_FF2hs" />
