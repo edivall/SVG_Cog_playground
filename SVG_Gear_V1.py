@@ -11,7 +11,78 @@ from shapely.geometry import Polygon
 import trimesh
 import io
 
+import json
 
+# ----------------------------
+# Save / Load parameters - as json
+# ----------------------------
+
+SAVE_KEYS = [
+    "n_teeth",
+    "angle_span",
+    "tooth_type",
+    "r_base",
+    "tooth_height",
+    "power",
+    "width",
+
+    "tooth_reflect",
+    "radial_shear",
+    "radial_wiggles",
+    "wiggle_strength",
+
+    "n_points",
+
+    "n2",
+    "slop",
+    "steps_per_rev",
+    "smooth_iters",
+    "rotg1",
+    "show_mating",
+
+    "stl_thickness",
+
+    "center_hole",
+    "bolt_holes",
+    "bolt_radius",
+    "bolt_size",
+
+    "spokes",
+    "spoke_width",
+    "spoke_inner",
+    "spoke_outer",
+    "dt"
+]
+
+
+def get_save_data():
+    """
+    Collect all user parameters from session_state.
+    """
+
+    data = {}
+
+    for k in SAVE_KEYS:
+
+        if k in st.session_state:
+            data[k] = st.session_state[k]
+
+    return data
+
+
+def load_save_data(data):
+    """
+    Restore parameters into Streamlit session_state.
+    """
+
+    for k, v in data.items():
+
+        if k in SAVE_KEYS:
+            st.session_state[k] = v
+
+
+
+#Auto change toothspan (can be overridden later manually)
 
 def update_tooth_span():
     st.session_state.angle_span = 360 / st.session_state.n_teeth
@@ -63,7 +134,9 @@ def polar_to_cartesian(r, theta_deg):
 # Tooth profiles
 # ----------------------------
 def radius_profile(t, r_base, tooth_height, power, width, tooth_type,nteeth): #t=0 to 1
-     
+    if t>1:
+        return r_base    
+    
     if tooth_type == "Gaussian":
         x = (t - 0.5) / width
         f = math.exp(-(x ** 2)) ** power
@@ -180,10 +253,14 @@ def angle_profile(t, angle_span, rfrac, rad_wig, wig_strength, reflect, radial_s
 def generate_tooth(params):
 
     pts = []
-
+    fullang=360/params["n_teeth"]
+    
     for i in range(params["n_points"] + 1):
-        t = i / params["n_points"]
-        widthFract=params["width"]/params["angle_span"]
+        
+        t =  i /params["n_points"] 
+        t= t * fullang / params["angle_span"] 
+        #widthFract=params["width"]/params["angle_span"]
+        
         r = radius_profile(
             t,
             params["r_base"],
@@ -348,57 +425,98 @@ def build_svg(polar_points, p):
 # Streamlit UI
 # ----------------------------
 
+# Save / Load streamlit UI parameters
+
+
+save_data = json.dumps(
+    get_save_data(),
+    indent=2
+)
+
+st.download_button(
+    "💾 Save Gear Configuration",
+    data=save_data,
+    file_name="gear_preset.json",
+    mime="application/json"
+)
+
+uploaded_files = st.file_uploader(
+    "📂 Load a saved Gear Configuration (multiple allowed)",
+    type=["json"],
+    accept_multiple_files=True
+)
+
+if uploaded_files:
+    st.write("### Loaded saved files")
+
+    for i, f in enumerate(uploaded_files):
+        try:
+            # IMPORTANT: read file safely
+            data = json.loads(f.getvalue().decode("utf-8"))
+        except Exception as e:
+            st.error(f"Failed to load {f.name}: {e}")
+            continue
+
+        col1, col2 = st.columns([4, 1])
+
+        with col1:
+            st.write(f"📄 {f.name}")
+
+        with col2:
+            if st.button("Use file", key=f"use_preset_{i}_{f.name}"):
+                load_save_data(data)
+                st.success(f"Loaded: {f.name}")
+                st.rerun()
+
+
+
 st.title("⚙️ SVG Cog / Gear shape Generator!")
 
 with st.sidebar:
 
     st.header("Settings")
-    svg_size = st.slider("SVG image size", 50, 800, 300)
+    svg_size = st.slider("SVG image size", 50, 800, 300, key="svg_size")
+
     st.header("Gear")
-    n_teeth = st.slider("Teeth", 3, 100, 20, on_change = update_tooth_span,key="n_teeth")
-    angle_span = st.slider("Tooth span (deg)", 2.0, 130.0, 18.0,  key="angle_span")
-    tooth_type = st.selectbox("Profile", ["Sinusoidal", "Spike/Square","Gaussian","Rounded Square","Ratchet"])
-    r_base = st.slider("Base radius", 1.0, 120.0, 50.0)
-    tooth_height = st.slider("Tooth height", -50.0, 50.0, 10.0)
-    power = st.slider("Sharpness (1 for pure gauss)", 0.1, 7.0, 1.0)
-    width = st.slider("Tooth width (not sinusoidal)", 1.0, 99.0, 50.0)
+    n_teeth = st.slider("Teeth", 3, 100, 20, on_change=update_tooth_span, key="n_teeth")
+    angle_span = st.slider("Tooth span (deg)", 2.0, 130.0, 18.0, key="angle_span")
+    tooth_type = st.selectbox("Profile", ["Sinusoidal", "Spike/Square", "Gaussian", "Rounded Square", "Ratchet"], key="tooth_type")
+    r_base = st.slider("Base radius", 1.0, 120.0, 50.0, key="r_base")
+    tooth_height = st.slider("Tooth height", -50.0, 50.0, 10.0, key="tooth_height")
+    power = st.slider("Sharpness (1 for pure gauss)", 0.1, 7.0, 1.0, key="power")
+    width = st.slider("Tooth width (not sinusoidal)", 1.0, 99.0, 50.0, key="width")
 
     st.header("Radial wave")
-    tooth_reflect = st.selectbox("Mid point reflection", ["Off", "On"])
-    radial_shear = st.slider("Radial shear (spiral)", -15.0, 15.0, 0.0)
-    radial_wiggles = st.slider("Radial wiggles (half oscillations)", -5.0, 5.0, 0.0)
-    wiggle_strength = st.slider("Radial Wiggle amplitude (0=Off)", -6.0, 6.0, 2.0)
+    tooth_reflect = st.selectbox("Mid point reflection", ["Off", "On"], key="tooth_reflect")
+    radial_shear = st.slider("Radial shear (spiral)", -15.0, 15.0, 0.0, key="radial_shear")
+    radial_wiggles = st.slider("Radial wiggles (half oscillations)", -5.0, 5.0, 0.0, key="radial_wiggles")
+    wiggle_strength = st.slider("Radial Wiggle amplitude (0=Off)", -6.0, 6.0, 2.0, key="wiggle_strength")
 
     st.header("Samples")
-    n_points = st.slider("Resolution (Samples per tooth on gear 1)", 1, 250, 100)
+    n_points = st.slider("Resolution (Samples per tooth on gear 1)", 1, 250, 100, key="n_points")
 
     st.header("Mating Gear")
+    n2 = st.slider("Gear 2 teeth", 2, 150, 10, key="n2")
+    slop = st.slider("Gap between", 0.0, 20.0, 0.5, key="slop")
+    steps_per_rev = st.slider("Samples per complete gear (360 deg)", 180, 2880, 720, key="steps_per_rev")
+    smooth_iters = st.slider("Smoothing iterations for gear 2", 0, 10, 0, key="smooth_iters")
+    rotg1 = st.number_input("rotate gear1", 0.0, 90.0, 0.0, 1.0, key="rotg1")
+    show_mating = st.checkbox("Show mating gear", True, key="show_mating")
 
-    n2 = st.slider("Gear 2 teeth", 2, 150, 10)
-    slop = st.slider("Gap between", 0.0, 20.0, 0.5) 
-    steps_per_rev = st.slider("Samples per complete gear (360 deg)", 180, 2880, 720)
-    smooth_iters = st.slider("Smoothing iterations for gear 2", 0, 10, 0)
-    rotg1 = st.number_input("rotate gear1", 0.0, 90.0, 0.0, 1.0) 
-    show_mating = st.checkbox("Show mating gear", True)
-
-
-    
     st.header("3D Export")
-    stl_thickness = st.slider("STL thickness", 1.0, 50.0, 5.0)
+    stl_thickness = st.slider("STL thickness", 1.0, 50.0, 5.0, key="stl_thickness")
 
     st.header("Holes / Spokes - SVG save only")
-    center_hole = st.slider("Center hole (0=Off)", 0, 50, 5)
-    bolt_holes = st.slider("Outer holes (0=Off)", 0, 120, 6)
-    bolt_radius = st.slider("Outer hole radius", 20, 150, 70)
-    bolt_size = st.slider("Outer hole size", 1, 15, 3)
+    center_hole = st.slider("Center hole (0=Off)", 0, 50, 5, key="center_hole")
+    bolt_holes = st.slider("Outer holes (0=Off)", 0, 120, 6, key="bolt_holes")
+    bolt_radius = st.slider("Outer hole radius", 20, 150, 70, key="bolt_radius")
+    bolt_size = st.slider("Outer hole size", 1, 15, 3, key="bolt_size")
 
-    spokes = st.slider("Spokes (0=Off)", 0, 12, 4)
-    spoke_width = st.slider("Spoke hole width ( < 360 / num spokes)", 5, 120, 60)
-    spoke_inner = st.slider("Spoke inner margin", 0, 50, 10)
-    spoke_outer = st.slider("Spoke outer margin", 0, 50, 10)
-    dt = st.slider("Spoke width tweak (dt)", 0.0, 20.0, 5.0)
-
-
+    spokes = st.slider("Spokes (0=Off)", 0, 12, 4, key="spokes")
+    spoke_width = st.slider("Spoke hole width ( < 360 / num spokes)", 5, 120, 60, key="spoke_width")
+    spoke_inner = st.slider("Spoke inner margin", 0, 50, 10, key="spoke_inner")
+    spoke_outer = st.slider("Spoke outer margin", 0, 50, 10, key="spoke_outer")
+    dt = st.slider("Spoke width tweak (dt)", 0.0, 20.0, 5.0, key="dt")
     
 
 params = {
@@ -1116,6 +1234,10 @@ if st.session_state.gear1_stl is not None:
                 mime="model/stl",
                 on_click=clear_stl_downloads
             )
+
+
+
+
 
 
 
