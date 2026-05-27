@@ -433,41 +433,6 @@ save_data = json.dumps(
     indent=2
 )
 
-st.download_button(
-    "💾 Save Gear Configuration",
-    data=save_data,
-    file_name="gear_preset.json",
-    mime="application/json"
-)
-
-uploaded_files = st.file_uploader(
-    "📂 Load a saved Gear Configuration (multiple allowed)",
-    type=["json"],
-    accept_multiple_files=True
-)
-
-if uploaded_files:
-    st.write("### Loaded saved files")
-
-    for i, f in enumerate(uploaded_files):
-        try:
-            # IMPORTANT: read file safely
-            data = json.loads(f.getvalue().decode("utf-8"))
-        except Exception as e:
-            st.error(f"Failed to load {f.name}: {e}")
-            continue
-
-        col1, col2 = st.columns([4, 1])
-
-        with col1:
-            st.write(f"📄 {f.name}")
-
-        with col2:
-            if st.button("Use file", key=f"use_preset_{i}_{f.name}"):
-                load_save_data(data)
-                st.success(f"Loaded: {f.name}")
-                st.rerun()
-
 
 
 st.title("⚙️ SVG Cog / Gear shape Generator!")
@@ -475,6 +440,48 @@ st.title("⚙️ SVG Cog / Gear shape Generator!")
 with st.sidebar:
 
     st.header("Settings")
+    
+    st.download_button(
+        "💾 Save Current Configuration",
+        data=save_data,
+        file_name="gear_preset.json",
+        mime="application/json"
+    )
+
+    uploaded_files = st.file_uploader(
+        "📂 Reload a Gear Configuration (multiple allowed)",
+        type=["json"],
+        #label_visibility="collapsed",
+        accept_multiple_files=True
+    )
+
+    if uploaded_files:
+        st.write("### Loaded saved files")
+
+        for i, f in enumerate(uploaded_files):
+            try:
+                # IMPORTANT: read file safely
+                data = json.loads(f.getvalue().decode("utf-8"))
+            except Exception as e:
+                st.error(f"Failed to load {f.name}: {e}")
+                continue
+
+            col1, col2 = st.columns([4, 1])
+
+            with col1:
+                st.write(f"📄 {f.name}")
+
+            with col2:
+                if st.button("Use file", key=f"use_preset_{i}_{f.name}"):
+                    load_save_data(data)
+                    st.success(f"Loaded: {f.name}")
+                    st.rerun()
+
+        
+    
+    
+    
+    
     svg_size = st.slider("SVG image size", 50, 800, 300, key="svg_size")
 
     st.header("Gear")
